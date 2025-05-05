@@ -181,4 +181,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgements
 
 This work was developed starting from code provided by Pat Walters (github.com/PatWalters/faiss_kmeans).
-Uses RDKit (www.rdkit.org), FAISS (github.com/facebookresearch/faiss), H5py, NumPy, Pandas, Tqdm. Please cite these libraries appropriately.
+Uses RDKit (www.rdkit.org), FAISS (www.github.com/facebookresearch/faiss), H5py, NumPy, Pandas, Tqdm. Please cite these libraries appropriately.
