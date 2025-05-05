@@ -1,0 +1,18 @@
+# environment.yml
+name: hier_chem_cluster
+channels:
+  - conda-forge  # Use conda-forge primarily
+  - defaults
+dependencies:
+  - python>=3.9
+  - faiss-cpu>=1.7      # CPU version of FAISS
+  - rdkit>=2022.09     # Recent RDKit
+  - h5py>=3.7
+  - numpy>=1.21
+  - pandas>=1.4
+  - tqdm
+  - PyYAML              # Added for config file support
+  - pip
+  - pytest              # Added for running tests
+  # - pip:
+  #   - other_package # Add any necessary pip packages here
