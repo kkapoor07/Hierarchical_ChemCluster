@@ -1,0 +1,33 @@
+# Example configuration for run_hierarchical_clustering.py
+# Paths - OVERRIDE WITH YOUR ACTUAL PATHS
+# If a path is relative, it's usually interpreted relative to where the script is run
+aggregated_fp_input_file: "work_output/fingerprints/fingerprints_aggregated.h5" # Input for Stage 1
+work_dir: "work_output/clustering_results" # Main output directory for stages
+
+# Fp Aggregation (if triggering initial aggregation via generate_fingerprints.py --aggregate)
+# fp_dir: "work_output/fingerprints" # Dir containing individual fps
+# fp_file_pattern: "*.h5"
+# aggregated_output_file: "fingerprints_aggregated.h5" # name within work_dir/fp_dir
+
+# Stage 1 Settings
+k1: 1000              # Number of initial clusters
+s1_n_init: 1
+s1_max_iter: 25
+
+# Stage 2 Settings
+k2_method: 'ratio'    # 'ratio', 'sqrt', 'fixed'
+k2_value: 500.0       # Divisor for ratio, or fixed value for 'fixed'
+k2_base_k: 100         # Minimum k2 value
+s2_n_init: 1
+s2_max_iter: 25
+n_workers_stage2: -1  # Use all cores for processing stage 1 files
+
+# General Settings
+seed: 42              # Random seed for FAISS
+fp_dtype: "int8"      # Fingerprint dtype
+compression: "gzip"   # HDF5 compression ('gzip', 'lzf', 'none')
+compress_level: 4     # Gzip level (1-9)
+
+# Logging Settings (can also be set via CLI)
+# log_file: "logs/pipeline_config_run.log"
+# verbose: False
