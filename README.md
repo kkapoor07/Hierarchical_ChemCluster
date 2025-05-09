@@ -21,13 +21,13 @@ This pipeline enables the generation of large, diverse compound sets (representa
 *   **Parallel Processing:** Leverages multiprocessing for efficient preprocessing (tautomer handling), fingerprint generation, and Stage 2 clustering across multiple CPU cores.
 *   **FAISS (CPU) Integration:** Utilizes the efficient `faiss-cpu` library for the core K-Means steps.
 *   **Modular Pipeline:** Organized into distinct steps (preprocessing, fingerprinting, clustering stages, aggregation, conversion) executed via dedicated scripts with underlying logic in `src/`.
-*   **Configurable:** Key parameters like cluster numbers, file paths, fingerprint settings, and parallelism are configurable via command-line arguments.
+*   **Configurable:** Key parameters are configurable via command-line arguments and/or a YAML configuration file.
 
 ## Requirements
 
 *   **Python:** >= 3.9
 *   **Conda:** Recommended for managing dependencies, especially `faiss-cpu` and `rdkit`.
-*   **Core Libraries:** `faiss-cpu`, `rdkit`, `h5py`, `numpy`, `pandas`, `tqdm` (See `environment.yml`).
+*   **Core Libraries:** `faiss-cpu`, `rdkit`, `h5py`, `numpy`, `pandas`, `tqdm`, `pyyaml` (See `environment.yml`).
 *   **Hardware:**
     *   **High Memory Node REQUIRED** for Clustering Stage 1. Memory needs are proportional to the size of the full fingerprint dataset (e.g., >200GB RAM might be needed for 0.5 billion 256-bit fingerprints, plus overhead).
     *   Multi-core CPU beneficial for preprocessing, fingerprint generation, and Stage 2 clustering.
@@ -51,8 +51,9 @@ This pipeline enables the generation of large, diverse compound sets (representa
 
 ## Pipeline Workflow & Usage
 
-The pipeline consists of several scripts found in the `scripts/` directory, typically run in sequence. It's recommended to create separate directories for logs and various output stages.
+The pipeline consists of several scripts found in the `scripts/` directory, typically run in sequence. For the main processing scripts (`scripts/preprocess_data.py`, `scripts/generate_fingerprints.py`, `scripts/run_hierarchical_clustering.py`), most parameters can be specified either via command-line arguments or through a YAML configuration file using the `--config` option. Command-line arguments will override values set in the configuration file.
 
+It's recommended to create separate directories for logs and various output stages:
 ```bash
 # Example directory setup in your working area
 mkdir logs
@@ -61,8 +62,24 @@ mkdir work_output/preprocessed_smiles
 mkdir work_output/fingerprints
 mkdir work_output/clustering_results
 mkdir data
-# Assume raw input SMILES files are placed inside 'data/raw_smiles/' (possibly in subdirs)
+# Assume raw input SMILES files are placed inside 'data/raw_smiles/'
+# (possibly in subdirectories)
 ```
+
+### Configuration File Usage
+
+For more complex runs, using a YAML configuration file is recommended to manage the numerous parameters. Create a YAML file (e.g., `config/my_pipeline_config.yaml`) with parameters corresponding to the command-line arguments.
+An example, `config/pipeline_config.yaml`, is provided in this repository.
+
+To use a configuration file with a script:
+```bash
+python scripts/run_hierarchical_clustering.py --config config/my_pipeline_config.yaml
+
+# You can still override specific values via CLI:
+python scripts/run_hierarchical_clustering.py --config config/my_pipeline_config.yaml --k1 1500 --verbose
+```
+
+---
 
 **Step 1: Preprocessing (Tautomer Canonicalization & Deduplication)**
 
@@ -71,68 +88,77 @@ mkdir data
 *   **Output:** Directory (`work_output/preprocessed_smiles/`) containing `*_taut.smi` files with unique canonical tautomers.
 
 ```bash
+# Example using command-line arguments:
 python scripts/preprocess_data.py \
-    data/raw_smiles \
-    work_output/preprocessed_smiles \
-    --log_file logs/preprocess.log \
-    --n_workers -1 \
+    --input_dir data/raw_smiles \
+    --output_dir work_output/preprocessed_smiles \
+    --pattern "*.smi" \
     --delimiter " " \
     --smiles_col smiles \
     --id_col zinc_id \
-    --pattern "*.smi" # Adjust pattern if needed
-    # Add --verbose for more detailed logs
+    --n_workers -1 \
+    --log_file logs/preprocess.log \
+    --verbose
+# (Alternatively, most parameters can be set in a YAML config file passed via --config)
 ```
 
 **Step 2: Fingerprint Generation (Parallel)**
 
 *   **Script:** `scripts/generate_fingerprints.py`
 *   **Input:** Directory containing preprocessed `*_taut.smi` files (`work_output/preprocessed_smiles/`).
-*   **Output:** Directory (`work_output/fingerprints/`) containing individual `.h5` fingerprint files. Crucially, use `--aggregate` to create the single large HDF5 file needed for clustering.
+*   **Output:** Directory (`work_output/fingerprints/`) containing individual `.h5` fingerprint files. Use `--aggregate` to create the single large HDF5 file needed for Stage 1 clustering.
 
 ```bash
+# Example using command-line arguments:
 python scripts/generate_fingerprints.py \
-    work_output/preprocessed_smiles \
-    work_output/fingerprints \
+    --input_dir work_output/preprocessed_smiles \
+    --output_dir work_output/fingerprints \
     --pattern "*_taut.smi" \
     --nbits 256 --radius 2 --fp_dtype int8 \
     --aggregate \
     --aggregated_output_file "fingerprints_aggregated.h5" \
-    --log_file logs/gen_fp.log \
     --n_workers -1 \
-    --skip_header # Add if your *_taut.smi files have headers
-    # Add --verbose for more detailed logs
+    --skip_header \
+    --log_file logs/gen_fp.log \
+    --verbose
+# (Alternatively, most parameters can be set in a YAML config file passed via --config)
 ```
 *Result: `work_output/fingerprints/fingerprints_aggregated.h5` is created containing all fingerprints.*
 
 **Step 3: Hierarchical Clustering**
 
 *   **Script:** `scripts/run_hierarchical_clustering.py`
-*   **Input:** The single, large, aggregated fingerprint HDF5 file (`work_output/fingerprints/fingerprints_aggregated.h5`).
-*   **Output:** Intermediate `cluster_*.h5` files (Stage 1), final `details_cluster_*.h5` and `centers_cluster_*.h5` files (Stage 2), and a final aggregated representatives file (`representatives_final.h5`) - all within the specified working directory (`work_output/clustering_results/`).
-*   **Requires High Memory Node for Stage 1!** Ensure this script is run on appropriate hardware.
+*   **Input:** The single, large, aggregated fingerprint HDF5 file.
+*   **Output:** Intermediate and final clustering results in the specified working directory.
+*   **Requires High Memory Node for Stage 1!**
 
 ```bash
-# Example: Aim for ~1M final representatives from 0.5B molecules
-# Stage 1: Split into 1000 initial clusters
-# Stage 2: Aim for ~1000 reps per initial cluster (adjust k2_value/base_k)
+# Example using primarily command-line arguments:
+# (Aim for ~1M final representatives from 0.5B molecules)
 python scripts/run_hierarchical_clustering.py \
     --aggregated_fp_input_file work_output/fingerprints/fingerprints_aggregated.h5 \
     --work_dir work_output/clustering_results \
     --k1 1000 \
     --k2_method ratio --k2_value 500.0 --k2_base_k 1000 \
-    --log_file logs/clustering_pipeline.log \
     --n_workers_stage2 -1 \
-    --seed 42 # For reproducibility
-    # Add --verbose for more detailed logs
-```
-*(Adjust `k1`, `k2_*` parameters based on your dataset size and desired final number of representatives. `k1` determines the size/number of intermediate files and RAM needed for Stage 2 jobs. The total number of final representatives will be roughly sum(k2i) across all initial clusters (i.e., summing the sub-clusters found within each initial cluster).)*
+    --seed 42 \
+    --log_file logs/clustering_pipeline.log \
+    --verbose
 
+# (Tune `k1` and the Stage 2 `--k2_*` arguments to control the final number of representatives
+#  and manage computational resources. `k1` influences Stage 2 RAM requirements by setting
+#  intermediate file sizes/counts. The total number of representatives is the sum of
+#  sub-clusters generated in Stage 2 across all `k1` initial groups.)
+
+# (Example using a config file, perhaps overriding one parameter:
+#  # python scripts/run_hierarchical_clustering.py --config config/pipeline_config.yaml --seed 123)
+```
 *Result: `work_output/clustering_results/representatives_final.h5` contains the aggregated representatives.*
 
 **Step 4: Convert Output (Optional)**
 
 *   **Script:** `scripts/convert_output.py`
-*   **Input:** Aggregated representatives HDF5 file (`representatives_final.h5`) OR directory containing Stage 2 detail files (`work_output/clustering_results/stage2_results/`).
+*   **Input:** Aggregated representatives HDF5 file OR directory containing Stage 2 detail files.
 *   **Output:** SMILES file (`.smi`) for representatives OR CSV files for cluster details.
 
 ```bash
@@ -158,8 +184,8 @@ python scripts/convert_output.py \
 *   **Intermediate/Output HDF5:** Uses `h5py`. Compression (default gzip) is used.
     *   Individual/Aggregated Fingerprints: Datasets `fp_list` (N x Bits, `int8`), `smiles_list` (N x 1, variable-length bytes), `name_list` (N x 1, variable-length bytes).
     *   Stage 1 Clusters (`cluster_*.h5`): Same format as aggregated fingerprints, containing only members of that cluster.
-    *   Stage 2 Details (`details_cluster_*.h5`): Datasets `SMILES` (string), `NAME` (string), `CLUSTER_k2` (int32, sub-cluster index), `DISTANCE_k2` (float32, distance to sub-cluster centroid).
-    *   Stage 2 Centers (`centers_cluster_*.h5`): Same format as aggregated fingerprints (`fp_list`, `smiles_list` [bytes], `name_list` [bytes]), containing only the representative points for the sub-clusters.
+    *   Stage 2 Details (`details_cluster_*.h5`): Datasets `SMILES` (string dtype), `NAME` (string dtype), `CLUSTER_k2` (int32, sub-cluster index), `DISTANCE_k2` (float32, distance to sub-cluster centroid).
+    *   Stage 2 Centers (`centers_cluster_*.h5`): Same format as aggregated fingerprints (`fp_list`, `smiles_list` [variable-length bytes], `name_list` [variable-length bytes]), containing only the representative points for the sub-clusters.
     *   Final Representatives (`representatives_final.h5`): Same format as Stage 2 Centers, containing all representatives aggregated from Stage 2.
 *   **Output SMI/CSV:** Standard text formats. SMI file is space-delimited by default. CSV includes headers.
 
@@ -167,7 +193,7 @@ python scripts/convert_output.py \
 
 The `scripts/utils/` directory contains potentially helpful helper scripts derived from the development process:
 *   `split_smiles_file.py`: Splitting large SMILES text files.
-*   `compress_h5_file.py`: Post-compressing HDF5 files (though pipeline scripts apply compression).
+*   `compress_h5_file.py`: Post-compressing HDF5 files.
 *   `check_h5_contents.py`: Inspecting HDF5 file structure and data.
 *   `find_missing_downloads.sh`: Context-specific script for verifying ZINC download structure.
 *   `delete_intermediate_files.sh`: Context-specific script for cleaning up intermediate files (use with caution).
@@ -180,5 +206,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgements
 
-This work was developed starting from code provided by Pat Walters (www.github.com/PatWalters/faiss_kmeans).
-Uses RDKit (www.rdkit.org), FAISS (www.github.com/facebookresearch/faiss), H5py, NumPy, Pandas, Tqdm. Please cite these libraries appropriately.
+*   This work was developed starting from code provided by Pat Walters ([github.com/PatWalters/faiss_kmeans](https://github.com/PatWalters/faiss_kmeans)).
+*   Uses RDKit ([www.rdkit.org](https://www.rdkit.org)), FAISS ([github.com/facebookresearch/faiss](https://github.com/facebookresearch/faiss)), H5py, NumPy, Pandas, Tqdm, PyYAML. Please cite these libraries appropriately.
